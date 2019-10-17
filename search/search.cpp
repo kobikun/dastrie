@@ -37,6 +37,8 @@
 #include <sstream>
 #include <dastrie.h>
 #include <optparse.h>
+#include <fcntl.h>
+#include <stdio.h>
 
 class option : public optparse
 {
@@ -158,8 +160,9 @@ int search(const option& opt)
         es << "ERROR: No database file specified." << std::endl;
         return 1;
     }
-
-    std::ifstream ifs(opt.db.c_str(), std::ios::binary);
+	
+	/*
+    // std::ifstream ifs(opt.db.c_str(), std::ios::binary);
     if (ifs.fail()) {
         es << "ERROR: Database file not found." << std::endl;
         return 1;
@@ -169,6 +172,9 @@ int search(const option& opt)
         es << "ERROR: Failed to read the database." << std::endl;
         return 1;
     }
+	*/
+    // int fd = open(opt.db.c_str(), O_RDONLY);
+	trie.read_mmap(opt.db.c_str());
 
     for (;;) {
         std::string line;
