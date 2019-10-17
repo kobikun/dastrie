@@ -49,6 +49,11 @@ http://www.open-std.org/jtc1/sc22/wg21/docs/lwg-defects.html#69
 #include <vector>
 #include <stdint.h>
 
+#include <stdio.h>
+#include <string.h>
+#include <sys/mman.h>
+#include <fcntl.h>
+
 #define DASTRIE_MAJOR_VERSION   1
 #define DASTRIE_MINOR_VERSION   1
 #define DASTRIE_COPYRIGHT       "Copyright (c) 2008,2009, Naoaki Okazaki"
@@ -736,6 +741,7 @@ public:
 
 protected:
     char* m_block;
+    int m_block_size;
     uint8_t m_table[NUMCHARS];
     doublearray_type m_da;
     itail m_tail;
@@ -748,7 +754,7 @@ public:
     trie()
     {
         m_block = NULL;
-
+        m_block_size = 0;
         // Initialize the character table.
         for (int i = 0;i < NUMCHARS;++i) {
             m_table[i] = i;
@@ -761,7 +767,8 @@ public:
     virtual ~trie()
     {
         if (m_block != NULL) {
-            delete[] m_block;
+            // delete[] m_block;
+            munmap(m_block, m_block_size);
             m_block = NULL;
         }
     }
@@ -1078,7 +1085,6 @@ public:
             } else if (strncmp(chunk, "TAIL", 4) == 0) {
                 // "TAIL" chunk.
                 m_tail.assign(q, datasize);
-
             }
 
             p += size;
@@ -1141,6 +1147,58 @@ public:
         return used_size;
     }
 
+    /**
+     * Read a double-array trie from an input file(mmap)
+     *  @param  is              The input file descriptor
+     *  @return size_type       The size of the double-array data.
+     */
+    size_type read_mmap(const char * db_path)
+    {
+        char chunk[4];
+        uint32_t total_size;
+        uint8_t data[CHUNKSIZE];
+
+        int shared = 1;
+        int ret;
+		// std::cerr << "read file : " << db_path << "\n";
+		FILE * fd = fopen(db_path, "rb");
+		// std::cerr << "read chunksize : " << CHUNKSIZE << "\n";
+        ret = fread(data, sizeof(uint8_t), CHUNKSIZE, fd);
+		if(ret != CHUNKSIZE) {
+			std::cerr << "reading file error : " << db_path << "\n";
+		}
+		fclose(fd);
+
+        // Parse the data as a chunk.
+        read_chunk(data, chunk, total_size);
+        // Make sure that the data is a "SDAT" chunk.
+        if (std::strncmp(chunk, "SDAT", 4) != 0) {
+            // is.seekg(offset, std::ios::beg);
+            return 0;
+        }
+        // Allocate a new memory block and copy the data.
+        m_block = new char[total_size];
+        // std::memcpy(m_block, data, CHUNKSIZE);
+       	
+		int fmd; // for mmap 
+		fmd = open(db_path, O_RDONLY); 
+        // m_data = new char[total_size];
+		std::cerr << "total_size : " << total_size << "\n";
+        m_block = reinterpret_cast<char *>(mmap(NULL, total_size, PROT_READ, MAP_FILE | (shared?MAP_SHARED:MAP_PRIVATE), fmd, 0));
+        if (m_block == MAP_FAILED) {
+			std::cerr << "loading file error : " << db_path << "\n";
+            return 0;
+        }
+        m_block_size = total_size; // for munmap
+        
+		// Allocate the trie.
+        size_type used_size = assign(m_block, total_size);
+        if (used_size != total_size) {
+            // is.seekg(offset, std::ios::beg);
+            return 0;
+        }
+        return used_size;
+    }
 protected:
     size_type read_uint32(const uint8_t* block, uint32_t& value)
     {
